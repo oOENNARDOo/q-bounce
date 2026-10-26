@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>草地上的Q弹小人</title>
+<style>
+  :root{
+    --pink:#ff6fae;
+    --violet:#a86bff;
+    --ink:#2f3a36;
+    --doll-h: clamp(64px, 7.7vw, 152px);
+    --giant-h: clamp(220px, 22.5vw, 440px);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; overflow:hidden; background:#8fd3ff;
+    font-family:"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",-apple-system,"Segoe UI",sans-serif;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  /* ---------------- 背景（草地图已镜像） ---------------- */
+  .bg{
+    position:fixed; inset:0; z-index:0;
+    background:url("assets/grass.jpg") center 58% / cover no-repeat;
+    filter:saturate(1.05) contrast(1.02);
+  }
+  .bg::after{
+    content:""; position:absolute; inset:0;
+    background:radial-gradient(72% 46% at 48% 30%, rgba(255,255,255,.28), rgba(255,255,255,0) 62%);
+    mix-blend-mode:screen;
+  }
+
+  /* ---------------- 角色 ---------------- */
+  .field{position:fixed; inset:0; z-index:1; isolation:isolate; overflow:hidden}
+  .doll{
+    position:absolute;
+    transform:translateX(-50%) scaleX(var(--fx,1));
+    animation:pop .85s cubic-bezier(.2,1.2,.42,1) backwards;
+    animation-delay:var(--in, 0s);
+  }
+  @keyframes pop{
+    from{opacity:0; transform:translateX(-50%) translateY(16px) scale(.82) scaleX(var(--fx,1))}
+    to  {opacity:1; transform:translateX(-50%) translateY(0)    scale(1)   scaleX(var(--fx,1))}
+  }
+  .doll img{
+    display:block; width:auto;
+    height:calc(var(--doll-h) * var(--s, 1));
+    transform-origin:50% 100%;
+    -webkit-mask-image:linear-gradient(to bottom, #000 0%, #000 86%, rgba(0,0,0,0) 99%);
+    mask-image:linear-gradient(to bottom, #000 0%, #000 86%, rgba(0,0,0,0) 99%);
+    will-change:transform;
+    pointer-events:none;
+    user-select:none; -webkit-user-drag:none;
+  }
+  .doll.giant img{
+    height:calc(var(--giant-h) * var(--s, 1));
+    -webkit-mask-image:none; mask-image:none;
+  }
+
+  .shadow{
+    position:absolute; left:50%; bottom:.6%;
+    width:64%; margin-left:-32%;
+    height:clamp(6px,1.05vw,13px);
+    border-radius:50%;
+    transform-origin:50% 100%;
+    background:radial-gradient(50% 50% at 50% 50%,
+      rgba(8,48,22,.44), rgba(8,48,22,.20) 55%, rgba(8,48,22,0) 76%);
+    filter:blur(.6px);
+    z-index:-1;
+    will-change:transform,opacity;
+    pointer-events:none;
+  }
+  .giant .shadow{
+    width:56%; margin-left:-28%;
+    height:clamp(9px,1.6vw,22px);
+    background:radial-gradient(50% 50% at 50% 50%,
+      rgba(20,10,26,.36), rgba(20,10,26,.14) 58%, rgba(20,10,26,0) 78%);
+  }
+
+  .tag{ display:none; }
+  .handle{ display:none; }
+
+  /* ---------------- 编辑模式 ---------------- */
+  body.editing .doll{ cursor:grab; touch-action:none; }
+  body.editing .doll img{ pointer-events:auto; }
+  body.editing .doll::after{
+    content:""; position:absolute; inset:-4px; border-radius:12px;
+    border:1.5px dashed rgba(255,255,255,.85);
+    pointer-events:none;
+  }
+  body.editing .doll.selected::after{
+    border:2.5px solid var(--pink);
+    box-shadow:0 0 0 7px rgba(255,111,174,.16);
+  }
+  body.editing .doll.selected{ cursor:grabbing; }
+  body.editing .doll.selected .tag{
+    display:block; position:absolute; left:50%; bottom:100%;
+    transform:translateX(-50%); margin-bottom:8px;
+    padding:3px 10px; border-radius:999px;
+    background:rgba(34,54,46,.88); color:#fff;
+    font-size:11px; font-weight:700; letter-spacing:.04em;
+    white-space:nowrap; pointer-events:none;
+  }
+  body.editing .doll.selected .handle{
+    display:block; position:absolute; right:-10px; bottom:-10px;
+    width:19px; height:19px; border-radius:50%;
+    background:#fff; border:2.5px solid var(--pink);
+    box-shadow:0 2px 7px rgba(0,0,0,.28);
+    cursor:nwse-resize; z-index:6; touch-action:none;
+  }
+
+  .vignette{
+    position:fixed; inset:0; z-index:3; pointer-events:none;
+    background:radial-gradient(130% 96% at 50% 44%, rgba(0,0,0,0) 54%, rgba(4,38,18,.20) 100%);
+  }
+
+  /* ---------------- 单个角色左右翻转 ---------------- */
+  .doll.flipped{ --fx:-1; }
+  /* 翻转后：名字标签翻回来别变反字，缩放手柄仍留在视觉右下角 */
+  .doll.flipped .tag{ transform:translateX(-50%) scaleX(-1); }
+  .doll.flipped .handle{ right:auto; left:-10px; }
+
+  /* ---------------- 控制台 ---------------- */
+  .panel{
+    position:fixed; z-index:10;
+    top:clamp(14px,2.4vh,30px); right:clamp(14px,2vw,34px);
+    width:clamp(240px,19.5vw,300px);
+    padding:17px 17px 15px;
+    border-radius:26px;
+    background:linear-gradient(158deg, rgba(255,255,255,.91), rgba(255,255,255,.68));
+    border:1px solid rgba(255,255,255,.9);
+    box-shadow:0 22px 46px rgba(18,58,38,.24), inset 0 1px 0 rgba(255,255,255,.95);
+    backdrop-filter:blur(18px) saturate(1.25);
+    -webkit-backdrop-filter:blur(18px) saturate(1.25);
+    user-select:none;
+    max-height:calc(100vh - 40px); overflow:auto;
+  }
+
+  .go{
+    display:block; width:100%;
+    padding:15px 10px; margin:0;
+    border:0; border-radius:999px;
+    font:inherit; font-weight:800; font-size:clamp(16px,1.25vw,19px);
+    letter-spacing:.1em; color:#fff; cursor:pointer;
+    background:linear-gradient(140deg,#ffb3da 0%,#ff6fae 46%,#a86bff 100%);
+    box-shadow:0 12px 24px rgba(255,90,160,.38),
+               inset 0 2px 0 rgba(255,255,255,.55),
+               inset 0 -3px 0 rgba(96,0,64,.18);
+    transform-origin:50% 100%;
+    transition:transform .16s cubic-bezier(.34,1.56,.64,1), box-shadow .2s ease;
+    text-shadow:0 1px 2px rgba(150,20,90,.32);
+  }
+  .go:hover{
+    transform:translateY(-2px) scale(1.035);
+    box-shadow:0 17px 32px rgba(255,90,160,.46),
+               inset 0 2px 0 rgba(255,255,255,.55),
+               inset 0 -3px 0 rgba(96,0,64,.18);
+  }
+  .go:active{ transform:translateY(1px) scale(.972); }
+  .go:focus-visible, button:focus-visible{ outline:3px solid rgba(168,107,255,.6); outline-offset:3px; }
+
+  .speed{ margin-top:15px; }
+  .speed-head{
+    display:flex; align-items:baseline; justify-content:space-between;
+    font-size:13px; font-weight:700; letter-spacing:.06em;
+    color:#476a57; margin-bottom:7px;
+  }
+  .speed-head b{
+    font-size:17px; font-weight:800;
+    font-variant-numeric:tabular-nums;
+    background:linear-gradient(120deg,#ff6fae,#a86bff);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+
+  input[type=range]{
+    -webkit-appearance:none; appearance:none;
+    display:block; width:100%; height:24px; margin:0;
+    background:transparent; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:9px; border-radius:99px;
+    background:linear-gradient(90deg,#ffd7ea,#ff8dc2 55%,#b47dff);
+    box-shadow:inset 0 1px 3px rgba(90,20,60,.22), inset 0 -1px 0 rgba(255,255,255,.65);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:22px; height:22px; margin-top:-6.5px;
+    border-radius:50%; background:#fff;
+    border:3px solid var(--pink);
+    box-shadow:0 3px 9px rgba(255,90,160,.45);
+    transition:transform .14s ease;
+  }
+  input[type=range]:active::-webkit-slider-thumb{ transform:scale(1.12); }
+  input[type=range]::-moz-range-track{
+    height:9px; border-radius:99px;
+    background:linear-gradient(90deg,#ffd7ea,#ff8dc2 55%,#b47dff);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px; height:16px; border-radius:50%;
+    background:#fff; border:3px solid var(--pink);
+    box-shadow:0 3px 9px rgba(255,90,160,.45);
+  }
+
+  .tips{
+    display:flex; justify-content:space-between;
+    margin-top:5px; font-size:11px; letter-spacing:.03em; color:#7f9d8d;
+  }
+  .hint{
+    margin-top:12px; padding-top:10px;
+    border-top:1px dashed rgba(90,130,105,.3);
+    font-size:11.5px; line-height:1.55; color:#6d8a7a;
+  }
+  .hint b{ color:#476a57; font-variant-numeric:tabular-nums; }
+  .hint kbd{
+    padding:1px 5px; border-radius:5px;
+    background:rgba(90,130,105,.15);
+    font:inherit; font-size:11px; font-weight:700; color:#476a57;
+  }
+
+  .ghost{
+    display:block; width:100%; margin-top:13px; padding:11px 8px;
+    border:1.5px solid rgba(120,90,190,.35); border-radius:14px;
+    background:rgba(168,107,255,.09); color:#6b4fae;
+    font:inherit; font-size:13px; font-weight:800; letter-spacing:.05em;
+    cursor:pointer; transition:background .18s, transform .16s;
+  }
+  .ghost:hover{ background:rgba(168,107,255,.18); transform:translateY(-1px); }
+
+  .chip{
+    display:flex; align-items:center; justify-content:center; gap:7px;
+    width:100%; margin-top:11px; padding:10px 8px;
+    border:1.5px solid rgba(90,130,105,.30); border-radius:14px;
+    background:rgba(255,255,255,.55); color:#476a57;
+    font:inherit; font-size:13px; font-weight:800; letter-spacing:.06em;
+    cursor:pointer;
+    transition:background .18s, color .18s, border-color .18s, transform .16s, box-shadow .18s;
+  }
+  .chip:hover{ background:rgba(255,255,255,.85); transform:translateY(-1px); }
+  .chip:active{ transform:scale(.98); }
+  .chip[aria-pressed="true"]{
+    border-color:rgba(168,107,255,.55);
+    background:linear-gradient(140deg, rgba(185,139,255,.30), rgba(255,111,174,.22));
+    color:#6b4fae;
+    box-shadow:0 6px 16px rgba(139,92,246,.20);
+  }
+  .chip .ico{ font-size:15px; line-height:1; }
+  .cap{
+    margin-top:7px; font-size:10.5px; line-height:1.4;
+    color:#8aa79a; text-align:center; letter-spacing:.02em;
+  }
+
+  /* ---------------- 隐藏操作台（连鼠标一起藏） ---------------- */
+  .panel{ transition:opacity .26s ease, transform .26s cubic-bezier(.4,.1,.3,1); }
+  body.zen .panel{
+    opacity:0; transform:translateY(-10px) scale(.96);
+    pointer-events:none;
+  }
+  body.zen, body.zen *{ cursor:none !important; }
+  /* 彩蛋播放期间鼠标也一起藏起来，直到画面回来 */
+  body.crt-off, body.crt-off *{ cursor:none !important; }
+
+  /* 编辑面板 */
+  .edit-part{ display:none; }
+  body.editing .play-part{ display:none; }
+  body.editing .edit-part{ display:block; }
+
+  .edit-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+  .edit-head span{ font-size:14px; font-weight:800; letter-spacing:.08em; color:#6b4fae; }
+  .mini{
+    padding:7px 15px; border:0; border-radius:999px;
+    background:linear-gradient(140deg,#b98bff,#8b5cf6);
+    color:#fff; font:inherit; font-size:12.5px; font-weight:800; letter-spacing:.06em;
+    cursor:pointer; box-shadow:0 6px 14px rgba(139,92,246,.35);
+  }
+  .mini:hover{ filter:brightness(1.06); }
+  .edit-tip{ font-size:11.5px; line-height:1.55; color:#6d8a7a; margin:0 0 12px; }
+  .sel-name{ font-size:12.5px; font-weight:700; color:#476a57; margin-bottom:6px; }
+  .sel-name b{ color:#c33f86; font-size:13.5px; }
+  .row2{
+    display:flex; align-items:baseline; justify-content:space-between;
+    font-size:12.5px; font-weight:700; color:#476a57; margin:12px 0 6px;
+  }
+  .row2 b{ color:#6b4fae; font-variant-numeric:tabular-nums; font-size:14px; }
+
+  .layer-row{ display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-top:8px; }
+  .layer-row button{
+    padding:9px 6px; border-radius:12px;
+    border:1.5px solid rgba(120,90,190,.3);
+    background:rgba(168,107,255,.08); color:#5c4694;
+    font:inherit; font-size:12.5px; font-weight:800; cursor:pointer;
+    transition:background .16s, transform .14s;
+  }
+  .layer-row button:hover{ background:rgba(168,107,255,.2); }
+  .layer-row button:active{ transform:scale(.96); }
+
+  .edit-foot{
+    display:flex; justify-content:space-between; gap:8px;
+    margin-top:14px; padding-top:11px;
+    border-top:1px dashed rgba(120,90,190,.28);
+  }
+  .link{
+    border:0; background:transparent; padding:4px 2px;
+    font:inherit; font-size:12px; font-weight:700; color:#7d6ba8;
+    cursor:pointer; text-decoration:underline; text-underline-offset:3px;
+  }
+  .link:hover{ color:#5c4694; }
+
+  /* ---------------- 彩蛋：红点 + 关电视 ---------------- */
+  .egg{
+    position:fixed; z-index:20; left:22px; top:22px;
+    width:42px; height:42px; padding:0; border:0; border-radius:50%;
+    cursor:pointer;
+    background:radial-gradient(circle at 34% 28%, #ff9090 0%, #ee2b2b 44%, #a90f0f 100%);
+    box-shadow:0 8px 20px rgba(180,20,20,.42),
+               inset 0 -3px 8px rgba(90,0,0,.5),
+               inset 0 2px 4px rgba(255,255,255,.45);
+    transition:transform .16s cubic-bezier(.34,1.56,.64,1), opacity .2s ease;
+  }
+  .egg:hover{ transform:scale(1.08); }
+  .egg:active{ transform:scale(.93); }
+  .egg::after{
+    content:""; position:absolute; inset:-7px; border-radius:50%;
+    border:2px solid rgba(255,80,80,.55);
+    animation:eggPulse 2.6s ease-out infinite;
+    pointer-events:none;
+  }
+  @keyframes eggPulse{
+    0%  { transform:scale(.85); opacity:.85; }
+    70% { transform:scale(1.3);  opacity:0; }
+    100%{ transform:scale(1.3);  opacity:0; }
+  }
+  body.zen .egg{ opacity:0; pointer-events:none; transform:scale(.8); }
+
+  /* 关电视 */
+  .crt{ position:fixed; inset:0; z-index:9999; pointer-events:none; }
+  .crt-black{
+    position:absolute; inset:0; background:#000; opacity:0;
+    transition:opacity .22s ease;
+  }
+  .crt.show .crt-black{ opacity:1; transition:opacity .26s ease .48s; }
+
+  .crt-flash{
+    position:absolute; inset:0; opacity:0;
+    background:repeating-linear-gradient(to bottom,
+      rgba(255,255,255,.95) 0 5px, rgba(255,255,255,.04) 5px 13px);
+  }
+  .crt.show .crt-flash{ animation:crtFlash .55s linear forwards; }
+  @keyframes crtFlash{
+    0%{opacity:0} 8%{opacity:.9} 22%{opacity:.05} 34%{opacity:.7}
+    46%{opacity:.02} 58%{opacity:0} 100%{opacity:0}
+  }
+
+  .crt-line{
+    position:absolute; left:50%; top:50%; width:100%; height:2px;
+    transform:translate(-50%,-50%) scale(1,1);
+    background:#fff; opacity:0;
+    box-shadow:0 0 18px 6px rgba(255,255,255,.9), 0 0 60px 26px rgba(150,205,255,.5);
+  }
+  .crt.show .crt-line{ animation:crtLine .72s cubic-bezier(.45,0,.72,.22) forwards; }
+  @keyframes crtLine{
+    0%  {opacity:0;    transform:translate(-50%,-50%) scale(1,1);}
+    28% {opacity:.95;  transform:translate(-50%,-50%) scale(1,1);}
+    62% {opacity:1;    transform:translate(-50%,-50%) scale(1,.85);}
+    100%{opacity:0;    transform:translate(-50%,-50%) scale(.008,.5);}
+  }
+
+  .crt-scan{
+    position:absolute; inset:0; opacity:0;
+    background:repeating-linear-gradient(to bottom,
+      rgba(255,255,255,.055) 0 1px, rgba(0,0,0,0) 1px 3px);
+  }
+  .crt.show .crt-scan{ animation:crtScanIn .3s ease .5s forwards; }
+  @keyframes crtScanIn{ from{opacity:0} to{opacity:1} }
+
+  .crt-num{
+    position:absolute; inset:0;
+    display:grid; place-items:center;
+    font:800 clamp(40px, 7.2vw, 104px)/1 ui-monospace, "SFMono-Regular", Consolas, "Courier New", monospace;
+    font-variant-numeric:tabular-nums; letter-spacing:.07em;
+    color:#fff; white-space:nowrap; opacity:0;
+    text-shadow:0 0 16px rgba(255,255,255,.75),
+                0 0 46px rgba(255,60,90,.5),
+                0 0 90px rgba(90,160,255,.35);
+  }
+  .crt.show .crt-num{ animation:crtNumIn .26s ease .60s forwards; }
+  @keyframes crtNumIn{ from{opacity:0; transform:scale(.96)} to{opacity:1; transform:scale(1)} }
+
+  body.crt-off .bg,
+  body.crt-off .field{
+    animation:crtCollapse .62s cubic-bezier(.6,.03,.9,.25) forwards;
+    transform-origin:50% 50%;
+  }
+  @keyframes crtCollapse{
+    0%  {transform:scale(1,1);}
+    18% {transform:scale(1,1.04);}
+    56% {transform:scale(1.02,.10);}
+    80% {transform:scale(1.16,.018);}
+    100%{transform:scale(.012,.003);}
+  }
+  body.crt-off .vignette{ opacity:0; transition:opacity .3s ease; }
+  body.crt-off .panel,
+  body.crt-off .egg{ opacity:0; pointer-events:none; }
+
+  body.crt-back .bg,
+  body.crt-back .field{
+    animation:crtReturn .46s cubic-bezier(.2,.85,.3,1);
+    transform-origin:50% 50%;
+  }
+  @keyframes crtReturn{
+    0%  {transform:scale(.012,.003); opacity:.3;}
+    45% {transform:scale(1,1.05);    opacity:1;}
+    72% {transform:scale(1,.985);}
+    100%{transform:scale(1,1);}
+  }
+
+  @media (max-width:640px){
+    :root{ --doll-h: clamp(44px, 12vw, 78px); --giant-h: clamp(150px, 34vw, 260px); }
+    .panel{ width:min(78vw,300px); }
+    .hint{ display:none; }
+  }
+</style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="field" id="field"></div>
+  <div class="vignette"></div>
+
+  <div class="panel">
+    <!-- 玩 -->
+    <div class="play-part">
+      <button class="go" id="go" type="button" aria-pressed="false">开始Q弹</button>
+
+      <div class="speed">
+        <div class="speed-head"><span>弹跳幅度</span><b id="ampVal">1.00×</b></div>
+        <input id="ampRng" type="range" min="0.50" max="2.00" step="0.01" value="1.00"
+               aria-label="弹跳幅度，0.50 到 2.00 倍">
+        <div class="tips"><span>0.50× 轻轻晃</span><span>2.00× 飞起来</span></div>
+      </div>
+
+      <div class="speed">
+        <div class="speed-head"><span>弹跳速度</span><b id="val">1.00×</b></div>
+        <input id="rng" type="range" min="0.50" max="2.00" step="0.01" value="1.00"
+               aria-label="弹跳速度，0.50 到 2.00 倍">
+        <div class="tips"><span>0.50× 慢悠悠</span><span>2.00× 疯狂弹</span></div>
+      </div>
+
+      <div class="hint">一轮伸缩 <b id="cyc">0.40</b> 秒 · 按 <kbd>空格</kbd> 也能开关</div>
+
+      <button class="ghost" id="editBtn" type="button">✎ 调整位置 / 大小 / 翻转 / 图层</button>
+
+      <button class="chip" id="zenBtn" type="button">
+        <span class="ico">◐</span> 隐藏操作台 · 鼠标一起藏
+      </button>
+      <div class="cap">点一下鼠标 或 按右 Shift 就能召回</div>
+    </div>
+
+    <!-- 编辑 -->
+    <div class="edit-part">
+      <div class="edit-head">
+        <span>编辑模式</span>
+        <button class="mini" id="doneBtn" type="button">完成</button>
+      </div>
+      <p class="edit-tip">点角色选中 → 直接拖动换位置 · 拖右下角小圆点改大小 · 下面的按钮调前后图层</p>
+
+      <div class="sel-name">已选中：<b id="selName">—</b></div>
+
+      <div class="row2"><span>大小</span><b id="sizeVal">100%</b></div>
+      <input id="sizeRng" type="range" min="30" max="260" step="1" value="100"
+             aria-label="角色大小">
+
+      <button class="chip" id="flipBtn" type="button" aria-pressed="false">
+        <span class="ico">⇄</span> 左右翻转这只
+      </button>
+
+      <div class="row2" style="margin-bottom:0"><span>图层</span></div>
+      <div class="layer-row">
+        <button type="button" data-act="up">↑ 上移一层</button>
+        <button type="button" data-act="down">↓ 下移一层</button>
+        <button type="button" data-act="top">⤒ 置顶</button>
+        <button type="button" data-act="bottom">⤓ 置底</button>
+      </div>
+
+      <div class="edit-foot">
+        <button class="link" id="resetSel" type="button">复位这只</button>
+        <button class="link" id="resetAll" type="button">全部复位</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 神秘红点 -->
+  <button class="egg" id="egg" type="button" title="别按" aria-label="彩蛋"></button>
+
+  <!-- 关电视 -->
+  <div class="crt" id="crt" aria-hidden="true">
+    <div class="crt-black"></div>
+    <div class="crt-flash"></div>
+    <div class="crt-line"></div>
+    <div class="crt-scan"></div>
+    <div class="crt-num" id="crtNum"></div>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* ============ 角色表 ============ */
+  const SMALL = [
+    { f:"01_昔涟.png",     name:"昔涟",     s:1.02, amp:16, x:6.8,  y:25.0 },
+    { f:"02_海瑟音.png",   name:"海瑟音",   s:0.96, amp:18, x:12.2, y:25.7 },
+    { f:"03_缇宝.png",     name:"缇宝",     s:1.00, amp:17, x:17.6, y:26.4 },
+    { f:"04_腾荒.png",     name:"腾荒",     s:0.97, amp:20, x:23.0, y:27.0 },
+    { f:"05_赛飞儿.png",   name:"赛飞儿",   s:1.04, amp:16, x:28.4, y:27.7 },
+    { f:"06_遐蝶.png",     name:"遐蝶",     s:0.99, amp:18, x:33.8, y:28.4 },
+    { f:"07_那刻夏.png",   name:"那刻夏",   s:1.01, amp:16, x:39.2, y:29.0 },
+    { f:"08_长夜月.png",   name:"长夜月",   s:0.97, amp:20, x:44.6, y:29.7 },
+    { f:"09_阿格莱雅.png", name:"阿格莱雅", s:1.03, amp:15, x:50.0, y:30.4 },
+    { f:"10_风堇.png",     name:"风堇",     s:1.00, amp:18, x:55.4, y:31.1 },
+    { f:"12_刻律德菈.png", name:"刻律德菈", s:1.00, amp:17, x:60.8, y:31.7 },
+    { f:"13_白厄.png",     name:"白厄",     s:1.02, amp:16, x:66.2, y:32.4 },
+    { f:"14_万敌.png",     name:"万敌",     s:1.00, amp:17, x:20.5, y:10.0 }
+  ];
+  const GIANT = { f:"11_铁墓.png", name:"铁墓", s:1.00, amp:9, x:72.0, y:41.5, giant:true };
+  const ALL = SMALL.concat([GIANT]);
+  const DEFAULT_ORDER = [GIANT].concat(SMALL);   // 铁墓默认在最底层
+
+  const field  = document.getElementById("field");
+  const bodyEl = document.body;
+
+  /* ============ 建 DOM ============ */
+  const items = ALL.map((cfg, idx) => {
+    const el = document.createElement("div");
+    el.className = "doll" + (cfg.giant ? " giant" : "");
+    if (!cfg.giant) el.style.setProperty("--in", (0.05 * idx).toFixed(3) + "s");
+
+    const sh = document.createElement("div");
+    sh.className = "shadow";
+
+    const img = document.createElement("img");
+    img.src = "assets/" + cfg.f;
+    img.alt = cfg.name;
+    img.draggable = false;
+
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = cfg.name;
+
+    const handle = document.createElement("span");
+    handle.className = "handle";
+
+    el.append(sh, img, tag, handle);
+    field.appendChild(el);
+
+    const item = {
+      el, img, shadow: sh, name: cfg.name, giant: !!cfg.giant, amp: cfg.amp,
+      x: cfg.x, y: cfg.y, s: cfg.s,
+      dx: cfg.x, dy: cfg.y, ds: cfg.s,
+      flipped: false,
+      z: 1
+    };
+    el._item = item;
+    return item;
+  });
+  const byName = new Map(items.map(i => [i.name, i]));
+  let order = DEFAULT_ORDER.map(c => byName.get(c.name));
+
+  function applyPlace(item) {
+    item.el.style.left   = item.x.toFixed(3) + "%";
+    item.el.style.bottom = item.y.toFixed(3) + "%";
+    item.el.style.setProperty("--s", item.s.toFixed(4));
+  }
+
+  function applyOrder(focus) {
+    order.forEach((it, i) => {
+      it.z = i + 1;
+      it.el.style.zIndex = String(i + 1);
+    });
+    if (focus) select(focus);
+  }
+
+  /* ============ Q弹动画：整张图上下压缩 / 拉长 ============ */
+  const CYCLE_MS = 400;
+
+  const bounceFrames = amp => {
+    const up = -amp, small = -amp * 0.28;
+    return [
+      { offset: 0,    transform: "translateY(0) scale(1,1)",
+        easing: "cubic-bezier(.22,.68,.36,1)" },
+      { offset: 0.30, transform: `translateY(${up}%) scale(.930,1.130)`,
+        easing: "cubic-bezier(.36,0,.66,1)" },
+      { offset: 0.55, transform: "translateY(0) scale(1.120,.880)",
+        easing: "cubic-bezier(.22,.68,.36,1)" },
+      { offset: 0.72, transform: `translateY(${small}%) scale(.962,1.050)`,
+        easing: "cubic-bezier(.36,0,.66,1)" },
+      { offset: 1,    transform: "translateY(0) scale(1,1)" }
+    ];
+  };
+
+  const SHADOW_FRAMES = [
+    { offset: 0,    transform: "scale(1,1)",       opacity: .95, easing: "cubic-bezier(.22,.68,.36,1)" },
+    { offset: 0.30, transform: "scale(.76,.70)",   opacity: .40, easing: "cubic-bezier(.36,0,.66,1)" },
+    { offset: 0.55, transform: "scale(1.14,1.08)", opacity: 1,   easing: "cubic-bezier(.22,.68,.36,1)" },
+    { offset: 0.72, transform: "scale(.96,1)",     opacity: .86, easing: "cubic-bezier(.36,0,.66,1)" },
+    { offset: 1,    transform: "scale(1,1)",       opacity: .95 }
+  ];
+
+  items.forEach(item => {
+    item.anim = item.img.animate(bounceFrames(item.amp),
+      { duration: CYCLE_MS, iterations: Infinity, fill: "both" });
+    item.anim.pause();
+
+    item.shadowAnim = item.shadow.animate(SHADOW_FRAMES,
+      { duration: CYCLE_MS, iterations: Infinity, fill: "both" });
+    item.shadowAnim.pause();
+  });
+
+  const allAnims = () => items.flatMap(it => [it.anim, it.shadowAnim]);
+
+  /* ============ 播放控制 ============ */
+  const goBtn = document.getElementById("go");
+  const rng   = document.getElementById("rng");
+  const valEl = document.getElementById("val");
+  const cycEl = document.getElementById("cyc");
+
+  let state = "idle";
+  let speed = 1;
+  const LABEL = { idle: "开始Q弹", playing: "停一下", paused: "继续Q弹" };
+
+  function setSpeed(v) {
+    speed = Math.round(Math.min(2, Math.max(0.5, v)) * 100) / 100;
+    allAnims().forEach(a => a.playbackRate = speed);
+    valEl.textContent = speed.toFixed(2) + "×";
+    cycEl.textContent = (CYCLE_MS / 1000 / speed).toFixed(2);
+  }
+
+  function play() {
+    if (state === "idle") allAnims().forEach(a => { a.currentTime = 0; });
+    allAnims().forEach(a => a.play());
+    state = "playing";
+    goBtn.textContent = LABEL.playing;
+    goBtn.setAttribute("aria-pressed", "true");
+  }
+
+  function pause() {
+    allAnims().forEach(a => a.pause());
+    if (state === "playing") state = "paused";
+    goBtn.textContent = LABEL.paused;
+    goBtn.setAttribute("aria-pressed", "false");
+  }
+
+  goBtn.addEventListener("click", () => state === "playing" ? pause() : play());
+  rng.addEventListener("input", e => setSpeed(parseFloat(e.target.value)));
+  rng.addEventListener("wheel", e => {
+    e.preventDefault();
+    setSpeed(speed + (e.deltaY < 0 ? 0.01 : -0.01));
+    rng.value = speed.toFixed(2);
+  }, { passive: false });
+
+  /* 弹跳幅度（只放大/缩小上下位移，挤压拉伸保持一致） */
+  const ampRng = document.getElementById("ampRng");
+  const ampVal = document.getElementById("ampVal");
+  let ampScale = 1;
+
+  function setAmp(v) {
+    ampScale = Math.round(Math.min(2, Math.max(0.5, v)) * 100) / 100;
+    ampVal.textContent = ampScale.toFixed(2) + "×";
+    items.forEach(it => it.anim.effect.setKeyframes(bounceFrames(it.amp * ampScale)));
+  }
+
+  ampRng.addEventListener("input", e => setAmp(parseFloat(e.target.value)));
+  ampRng.addEventListener("wheel", e => {
+    e.preventDefault();
+    setAmp(ampScale + (e.deltaY < 0 ? 0.01 : -0.01));
+    ampRng.value = ampScale.toFixed(2);
+  }, { passive: false });
+
+  setAmp(1);
+  setSpeed(1);
+
+  /* ============ 编辑模式 ============ */
+  const editBtn = document.getElementById("editBtn");
+  const doneBtn = document.getElementById("doneBtn");
+  const selName = document.getElementById("selName");
+  const sizeRng = document.getElementById("sizeRng");
+  const sizeVal = document.getElementById("sizeVal");
+  const flipBtn = document.getElementById("flipBtn");
+
+  let editing = false;
+  let selected = null;
+  let wasPlaying = false;
+
+  function select(item) {
+    items.forEach(i => i.el.classList.toggle("selected", i === item));
+    selected = item;
+    selName.textContent = item ? item.name : "—";
+    if (item) {
+      const pct = Math.round(item.s * 100);
+      sizeRng.value = String(Math.min(260, Math.max(30, pct)));
+      sizeVal.textContent = pct + "%";
+    } else {
+      sizeVal.textContent = "—";
+    }
+    flipBtn.setAttribute("aria-pressed", String(!!(item && item.flipped)));
+  }
+
+  /* ---------- 单个角色左右翻转 ---------- */
+  function setFlip(item, on) {
+    if (!item) return;
+    item.flipped = !!on;
+    item.el.classList.toggle("flipped", item.flipped);
+    if (item === selected) flipBtn.setAttribute("aria-pressed", String(item.flipped));
+    save();
+  }
+  flipBtn.addEventListener("click", () => {
+    if (selected) setFlip(selected, !selected.flipped);
+  });
+
+  function enterEdit() {
+    editing = true;
+    wasPlaying = state === "playing";
+    pause();
+    bodyEl.classList.add("editing");
+    if (!selected) select(order[order.length - 1]);
+  }
+
+  function exitEdit() {
+    editing = false;
+    bodyEl.classList.remove("editing");
+    if (wasPlaying) play();
+    else { state = "idle"; goBtn.textContent = LABEL.idle; }
+    save();
+  }
+
+  editBtn.addEventListener("click", enterEdit);
+  doneBtn.addEventListener("click", exitEdit);
+
+  /* ============ 隐藏操作台（鼠标一起藏） ============ */
+  const zenBtn = document.getElementById("zenBtn");
+  let zen = false;
+
+  function setZen(on) {
+    const want = !!on && !editing;      // 编辑模式下不让藏，免得出不来
+    if (want === zen) return;
+    zen = want;
+    bodyEl.classList.toggle("zen", zen);
+  }
+
+  zenBtn.addEventListener("click", () => setZen(true));
+
+  // 藏好之后：点一下鼠标（任意键）或者按右 Shift 召回
+  window.addEventListener("pointerdown", () => {
+    if (zen) setZen(false);
+  }, true);
+
+  /* ============ 彩蛋：关电视 ============ */
+  const eggBtn = document.getElementById("egg");
+  const crt    = document.getElementById("crt");
+  const crtNum = document.getElementById("crtNum");
+
+  const EGG_FROM  = 33550336;
+  const EGG_DUR   = 1500;     // 数字从 33550336 滚到 0 的时长
+  const EGG_HOLD  = 220;      // 先亮出原数字停一拍
+  const EGG_DELAY = 620;      // 等屏幕黑透了再开始倒数
+
+  let eggOn = false, eggRaf = 0, eggTimer = 0;
+
+  function eggCount() {
+    const t0 = performance.now() + EGG_HOLD;
+    const step = now => {
+      const p = Math.min(1, Math.max(0, (now - t0) / EGG_DUR));
+      crtNum.textContent = String(Math.round(EGG_FROM * (1 - p))).padStart(8, "0");
+      if (p < 1) eggRaf = requestAnimationFrame(step);
+      else crtNum.textContent = "0";
+    };
+    eggRaf = requestAnimationFrame(step);
+  }
+
+  function eggStart() {
+    if (eggOn) return;
+    eggOn = true;
+    bodyEl.classList.remove("crt-back");
+    crtNum.textContent = String(EGG_FROM);
+    bodyEl.classList.add("crt-off");
+    crt.classList.add("show");
+    eggTimer = setTimeout(eggCount, EGG_DELAY);
+  }
+
+  function eggStop() {
+    if (!eggOn) return;
+    eggOn = false;
+    clearTimeout(eggTimer);
+    cancelAnimationFrame(eggRaf);
+    crt.classList.remove("show");
+    bodyEl.classList.remove("crt-off");
+    bodyEl.classList.add("crt-back");
+    setTimeout(() => bodyEl.classList.remove("crt-back"), 520);
+    setTimeout(() => { if (!eggOn) crtNum.textContent = ""; }, 320);
+  }
+
+  eggBtn.addEventListener("click", eggStart);
+  window.addEventListener("pointerdown", () => { if (eggOn) eggStop(); }, true);
+
+  sizeRng.addEventListener("input", e => {
+    if (!selected) return;
+    selected.s = Math.min(2.6, Math.max(0.3, parseFloat(e.target.value) / 100));
+    applyPlace(selected);
+    sizeVal.textContent = Math.round(selected.s * 100) + "%";
+    saveSoon();
+  });
+
+  document.querySelectorAll(".layer-row button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (!selected) return;
+      const i = order.indexOf(selected);
+      const act = btn.dataset.act;
+      if (act === "up"   && i < order.length - 1) { order.splice(i, 1); order.splice(i + 1, 0, selected); }
+      else if (act === "down" && i > 0)           { order.splice(i, 1); order.splice(i - 1, 0, selected); }
+      else if (act === "top")    { order.splice(i, 1); order.push(selected); }
+      else if (act === "bottom") { order.splice(i, 1); order.unshift(selected); }
+      applyOrder(selected);
+      save();
+    });
+  });
+
+  document.getElementById("resetSel").addEventListener("click", () => {
+    if (!selected) return;
+    selected.x = selected.dx; selected.y = selected.dy; selected.s = selected.ds;
+    applyPlace(selected);
+    setFlip(selected, false);
+    select(selected);
+    save();
+  });
+
+  document.getElementById("resetAll").addEventListener("click", () => {
+    items.forEach(it => {
+      it.x = it.dx; it.y = it.dy; it.s = it.ds;
+      applyPlace(it);
+      it.flipped = false;
+      it.el.classList.remove("flipped");
+    });
+    order = DEFAULT_ORDER.map(c => byName.get(c.name));
+    applyOrder(selected);
+    select(selected);
+    save();
+  });
+
+  /* ---------- 拖动移动 / 拖角缩放 ---------- */
+  let drag = null;
+
+  function onDown(e) {
+    if (!editing) return;
+    const item = e.currentTarget._item;
+    if (!item) return;
+
+    if (e.target.classList.contains("handle")) {
+      select(item);
+      drag = { mode: "size", item, y0: e.clientY, h0: item.el.offsetHeight, s0: item.s,
+               base: item.el.offsetHeight / item.s };
+    } else {
+      select(item);
+      drag = { mode: "move", item, x0: e.clientX, y0: e.clientY, ix: item.x, iy: item.y };
+    }
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) {}
+  }
+
+  function onMove(e) {
+    if (!drag) return;
+    const item = drag.item;
+    if (drag.mode === "move") {
+      item.x = Math.max(-12, Math.min(112, drag.ix + (e.clientX - drag.x0) / window.innerWidth * 100));
+      item.y = Math.max(-15, Math.min(100, drag.iy - (e.clientY - drag.y0) / window.innerHeight * 100));
+    } else {
+      const nh = Math.max(36, Math.min(window.innerHeight * 0.95, drag.h0 + (e.clientY - drag.y0)));
+      item.s = Math.max(0.3, Math.min(2.6, nh / drag.base));
+      sizeRng.value = String(Math.min(260, Math.max(30, Math.round(item.s * 100))));
+      sizeVal.textContent = Math.round(item.s * 100) + "%";
+    }
+    applyPlace(item);
+    e.preventDefault();
+  }
+
+  function onUp() {
+    if (!drag) return;
+    drag = null;
+    save();
+  }
+
+  items.forEach(item => {
+    item.el.addEventListener("pointerdown", onDown);
+    item.el.addEventListener("pointercancel", onUp);
+  });
+  window.addEventListener("pointermove", onMove, { passive: false });
+  window.addEventListener("pointerup", onUp);
+  field.addEventListener("pointerdown", e => { if (e.target === field) select(null); });
+
+  /* ============ 存档 ============ */
+  const KEY = "qtan.layout.v2";
+  let saveTimer = 0;
+
+  function snapshot() {
+    return {
+      order: order.map(i => i.name),
+      items: items.map(i => ({
+        n: i.name,
+        x: +i.x.toFixed(3),
+        y: +i.y.toFixed(3),
+        s: +i.s.toFixed(4),
+        f: i.flipped ? 1 : 0
+      }))
+    };
+  }
+  function save() {
+    clearTimeout(saveTimer);
+    try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch (_) {}
+  }
+  function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
+
+  function load() {
+    let raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (_) {}
+    if (!raw) return;
+    let data;
+    try { data = JSON.parse(raw); } catch (_) { return; }
+    // 角色数量变了（比如新加了人）就丢掉旧布局，重新按新阵容排一遍
+    if (!Array.isArray(data.items) || data.items.length !== items.length) return;
+
+    (data.items || []).forEach(d => {
+      const it = byName.get(d.n);
+      if (!it) return;
+      if (Number.isFinite(d.x)) it.x = it.dx = Math.max(-12, Math.min(112, d.x));
+      if (Number.isFinite(d.y)) it.y = it.dy = Math.max(-15, Math.min(100, d.y));
+      if (Number.isFinite(d.s)) it.s = it.ds = Math.max(0.3, Math.min(2.6, d.s));
+      it.flipped = d.f === 1;
+      it.el.classList.toggle("flipped", it.flipped);
+      applyPlace(it);
+    });
+    if (Array.isArray(data.order)) {
+      const next = data.order.map(n => byName.get(n)).filter(Boolean);
+      items.forEach(i => { if (!next.includes(i)) next.push(i); });
+      order = next;
+    }
+    applyOrder(null);
+  }
+
+  items.forEach(applyPlace);
+  applyOrder(null);
+  load();
+
+  /* ============ 快捷键 / 参数 ============ */
+  window.addEventListener("keydown", e => {
+    if (e.code === "Escape") {
+      if (editing) { exitEdit(); return; }
+      if (zen) { setZen(false); return; }
+    }
+    if (e.code === "ShiftRight" && !e.repeat) {
+      e.preventDefault();
+      setZen(!zen);
+      return;
+    }
+    if (e.code === "Space" && !editing && !e.repeat) {
+      e.preventDefault();
+      state === "playing" ? pause() : play();
+    }
+  });
+
+  const qp = new URLSearchParams(location.search);
+  if (qp.has("speed")) {
+    const v = parseFloat(qp.get("speed"));
+    if (!Number.isNaN(v)) { setSpeed(v); rng.value = speed.toFixed(2); }
+  }
+  if (qp.has("amp")) {
+    const v = parseFloat(qp.get("amp"));
+    if (!Number.isNaN(v)) { setAmp(v); ampRng.value = ampScale.toFixed(2); }
+  }
+  if (qp.get("play") === "1") play();
+})();
+</script>
+</body>
+</html>
