@@ -26,21 +26,6 @@
 
 所有改动自动存进浏览器 localStorage，下次打开还是你摆的样子。
 
-## 部署到 GitHub Pages
-
-1. 在 GitHub 新建一个**空仓库**（不要勾选 README / .gitignore）
-2. 本地跑：
-
-   ```bash
-   git remote add origin https://github.com/<你的用户名>/<仓库名>.git
-   git push -u origin main
-   ```
-
-   提示输入密码时，用 **Personal Access Token**（GitHub → Settings → Developer settings → Personal access tokens），不要用账号密码。
-
-3. 仓库 → Settings → Pages → Source 选 `Deploy from a branch`，分支 `main`，目录 `/ (root)`，保存
-4. 等一分钟，访问 `https://<你的用户名>.github.io/<仓库名>/`
-
 ## 目录结构
 
 ```
